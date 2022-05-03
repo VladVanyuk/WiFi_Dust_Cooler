@@ -4,16 +4,13 @@
 #include <IRremoteESP8266.h>
 #include <IRrecv.h>
 #include <IRutils.h>
-#include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-
-#include "index.h"  //Web page
 
 uint16_t RECV_PIN = D6; // ИК-детектор
 IRrecv irrecv(RECV_PIN);
 decode_results results;
 
+const int dustSensorPin = A0;
+const int dustLedPower = D5;
 const int pwmFanOutputPin = D7;   //blue wire
 const int relayPin1 = D2;
 const int relayPin2 = D3;
@@ -22,31 +19,20 @@ float frequencyIncrement = 25.5;//12.75;   // incremental change in PWM frequenc
 int timeFrequency = 100;    // time period the PWM frequency is changing
 bool firstFanIsActive;
 bool secondFanIsActive;
+int voMeasured;
+float calcVoltage;
+float dustDensity;
+bool autoMode;
 
 void firstFanOFF();
 void firstFanON();
 void secondFanOFF();
 void secondFanON();
 
-//SSID and Password of your WiFi router
-const char* ssid = "AsusLyra";
-const char* password = "123456qwerty";
-AsyncWebServer server(80);
-
-const char* PARAM_INPUT = "value";
-
-// Replaces placeholder with button section in your web page
-String processor(const String& var){
-  if (var == "SLIDERVALUE"){
-    String sliderValue = String(rpmFan, 2);
-    return sliderValue;
-  }
-  return String();
-}
-
 void setup()
 {
   Serial.begin(115200);
+  //dustSensor.SETUP();
   pinMode(pwmFanOutputPin, OUTPUT);  
   pinMode(relayPin1, OUTPUT);
   pinMode(relayPin2, OUTPUT);
@@ -54,42 +40,46 @@ void setup()
   digitalWrite(relayPin2, LOW); // off
   firstFanIsActive = false;
   secondFanIsActive = false;
+  voMeasured = 0;
+  calcVoltage = 0;
+  dustDensity = 0;
+  autoMode = false;
   irrecv.enableIRIn();  // запускаем приемник
 
-  WiFi.begin(ssid, password);     //Connect to your WiFi router
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.print(".");
-  }
-  //If connection successful show IP address in serial monitor
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());  //IP address assigned to your ESP
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, "text/html", index_html, processor);
-  });  
-  server.on("/slider", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    String inputMessage;
-    // GET input1 value on <ESP_IP>/slider?value=<inputMessage>
-    if (request->hasParam(PARAM_INPUT)) {
-      inputMessage = request->getParam(PARAM_INPUT)->value();
-      rpmFan = inputMessage.toInt();                                              
-      analogWrite(pwmFanOutputPin, rpmFan);
-    }
-    else {
-      inputMessage = "No message sent";
-    }
-    Serial.println(inputMessage);
-    request->send(200, "text/plain", "OK");
-  });
-  server.begin();
+  pinMode(dustLedPower, OUTPUT);
+  pinMode(dustSensorPin, INPUT);
+  digitalWrite(dustLedPower,HIGH); //off
 }
 
 void loop()
 {
-  analogWrite(pwmFanOutputPin, rpmFan);  
-  delay(timeFrequency);
+  receiver(); 
+  if (autoMode == true){
+    readDustSensor();
+    Serial.print("dust ");
+    Serial.println(voMeasured);
+    if (voMeasured > 500){
+      firstFanON();
+      secondFanON();
+      rpmFan = voMeasured/4 - 1; 
+      analogWrite(pwmFanOutputPin, rpmFan);
+      Serial.print("WAIT 5 min");  
+      delay(300000);
+    } else if (voMeasured <= 500) {
+      firstFanOFF();
+      secondFanOFF();
+      delay(10000);
+      }
+  }
+   
+  while (autoMode == false){
+    receiver();
+    analogWrite(pwmFanOutputPin, rpmFan);  
+    delay(timeFrequency);
+    receiver();
+    }
   receiver();
+  delay(3000);
 }
 
 void firstFanOFF(){
@@ -103,26 +93,30 @@ void firstFanON(){
   }
 
 void secondFanOFF(){
-  digitalWrite(relayPin1, LOW);
+  digitalWrite(relayPin2, LOW);
   secondFanIsActive = false;
   }
 
 void secondFanON(){
-  digitalWrite(relayPin1, HIGH);
+  digitalWrite(relayPin2, HIGH);
   secondFanIsActive = true;
   }
 
 void receiver(){
   if ( irrecv.decode( &results )) { // если данные пришли
+    Serial.println(results.value);
     switch ( results.value) {
     case 3238126971://*
-        firstFanON();
+        if(firstFanIsActive == true){ firstFanOFF(); }
+        else if(firstFanIsActive == false){ firstFanON(); }
         break;
     case 4039382595://#
-        firstFanOFF();
+        if(secondFanIsActive == true){ secondFanOFF(); }
+        else if(secondFanIsActive == false){  secondFanON(); }
         break;
     case 2538093563://0
-        rpmFan = 0;
+        firstFanOFF();
+        secondFanOFF();
         break;
     case 3810010651: //1
         rpmFan = 25.5;
@@ -168,10 +162,29 @@ void receiver(){
         else {rpmFan = 255;}
         break;   
     case 1217346747:// ok
-        if(firstFanIsActive == true){ firstFanOFF(); }
-        else if(firstFanIsActive == false){ firstFanON(); }
+        autoMode = !autoMode;
+        Serial.println("autoMode " + autoMode);
         break;                                           
     }
   irrecv.resume(); // принимаем следующую команду                  
   }
+ }
+
+int readDustSensor() {
+  digitalWrite (dustLedPower,LOW);  //  power on the LED 
+  delayMicroseconds (280); 
+  voMeasured =  analogRead (dustSensorPin);  //  read the dust value 
+  delayMicroseconds (40); 
+  digitalWrite (dustLedPower,HIGH);  //  turn the LED off 
+  delayMicroseconds (9680);
+
+  calcVoltage = voMeasured*(5.0/1024);
+  dustDensity = 0.17*calcVoltage-0.1;
+
+  if ( dustDensity < 0)
+  {
+   dustDensity = 0.00; 
+  }
+
+  return  voMeasured; 
  }
