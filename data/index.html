@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP8266 Web Server</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+  <div class="topnav">
+    <h1>ESP8266 Web Server</h1>
+  </div>
+  
+  <div class="content">
+    <div class="card-grid">
+      <div class="card">
+        <p class="card-title">Fan1 state<strong> %STATEFAN1%</strong></p>
+        <p>
+          <a href="/fan1on"><button class="button">ON</button></a>
+          <a href="/fan1off"><button class="button button2">OFF</button></a>
+        </p>
+      </div>
+      <div class="card">
+        <p class="card-title">Fan2 state<strong> %STATEFAN2%</strong></p>
+        <p>
+          <a href="/fan2on"><button class="button">ON</button></a>
+          <a href="/fan2off"><button class="button button2">OFF</button></a>
+        </p>
+      </div>
+      <div class="card">
+        <p class="card-title">Automod<strong> %AUTOMOD%</strong></p>
+        <p>
+          <a href="/automodon"><button class="button">ON</button></a>
+          <a href="/automodoff"><button class="button button2">OFF</button></a>
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title">Fan RPM</p>
+      <p><input type="range" onchange="updateSliderPWM(this)" id="pwmSlider" min="0" max="255" value="%SLIDERVALUE%" step="1" class="slider"></p>
+      <p class="state"><span id="textSliderValue">%SLIDERVALUE%</span></p>
+    </div>
+
+    <p>
+      <span class="sensor-labels">Dust Density</span>
+      <span id="density">%DENSITY%</span>
+      <sup class="units"></sup>
+    </p>
+    <p>
+      <span class="sensor-labels">Rpm Fan</span>
+      <span id="rpm">%RPM%</span>
+      <sup class="units"></sup>
+    </p>
+  </div>
+</body>
+<script>
+  setInterval(function ( ) {
+    var xhttp = new XMLHttpRequest();
+    xhttp.onreadystatechange = function() {
+      if (this.readyState == 4 && this.status == 200) {
+        document.getElementById("density").innerHTML = this.responseText;
+      }
+    };
+    xhttp.open("GET", "/density", true);
+    xhttp.send();
+  }, 10000 ) ;
+
+  setInterval(function ( ) {
+    var xhttp = new XMLHttpRequest();
+    xhttp.onreadystatechange = function() {
+      if (this.readyState == 4 && this.status == 200) {
+        document.getElementById("rpm").innerHTML = this.responseText;
+      }
+    };
+    xhttp.open("GET", "/rpm", true);
+    xhttp.send();
+  }, 10000 ) ;
+
+  
+  function updateSliderPWM(element) {
+    var sliderValue = document.getElementById("pwmSlider").value;
+    document.getElementById("textSliderValue").innerHTML = sliderValue;
+    console.log(sliderValue);
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "/slider?value="+sliderValue, true);
+    xhr.send();
+  }
+
+</script>
+</html>
