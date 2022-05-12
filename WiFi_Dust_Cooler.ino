@@ -7,12 +7,21 @@
 #include <FS.h>
 #include <AsyncElegantOTA.h>
 //#include "SPIFFS.h"
-//#include <Hash.h>
+#include <Hash.h>
 #include <Arduino_JSON.h>
+
+#include "ThingSpeak.h"
 
 #include "dustSensor.h"
 #include "receiverIR.h"
 #include "pwmFan.h"
+
+WiFiClient  client;
+unsigned long myChannelNumber = 1;
+const char * myWriteAPIKey = "OTGSHPKTRX2JQZFM";
+// Timer variables
+unsigned long lastTime = 0;
+unsigned long timerDelay = 30000;
 
 int density;
 const char* PARAM_INPUT = "value";
@@ -43,12 +52,6 @@ String getRpm() {
   float rpm = pwmFan.rpmFan;
   Serial.println(rpm);
   return String(rpm);
-}
-
-String getAutoMode() {
-  bool automodVal = receiverIR.autoMode;
-  Serial.println(automodVal);
-  return String(automodVal);
 }
 
 // Replaces placeholder with LED state value
@@ -198,6 +201,7 @@ void setup() {
   AsyncElegantOTA.begin(&server);    // Start ElegantOTA
   server.begin(); // Start server
   Serial.println("HTTP server started");
+  ThingSpeak.begin(client);  // Initialize ThingSpeak
   timerDust = millis();
 }
 
@@ -208,12 +212,27 @@ void loop() {
   digitalWrite(pwmFan.relayPin1, pwmFan.firstFanIsActive);
   digitalWrite(pwmFan.relayPin2, pwmFan.secondFanIsActive);
   analogWrite(pwmFan.pwmFanOutputPin, pwmFan.rpmFan);
-  
-  if (millis() - timerDust > 15000) {
-    density = dustSensor.readDustSensor();
-    Serial.println((String)"fan1: " + pwmFan.firstFanIsActive + " fan2:" + pwmFan.secondFanIsActive);
-    Serial.println((String)"RPM: " + pwmFan.rpmFan + " dustVAL: " + density);
-    Serial.println((String)"AUTO? : " + autoModeState);
+
+  if (millis() - timerDust > timerDelay) { //was 15000 now 30000
+    dustSensor.readDustSensor();
+    density = dustSensor.voMeasured;
+    //Serial.println((String)"fan1: " + pwmFan.firstFanIsActive + " fan2:" + pwmFan.secondFanIsActive);
+    //Serial.println((String)"RPM: " + pwmFan.rpmFan + " dustVAL: " + density);
+    //Serial.println((String)"AUTO? : " + autoModeState);
+
+    // set the fields with the values
+    if (density > 100) {
+      ThingSpeak.setField(1, density);
+    }
+   // ThingSpeak.setField(1, density);
+    ThingSpeak.setField(2, pwmFan.rpmFan);
+    int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+    if (x == 200) {
+      Serial.println("Channel update successful.");
+    }
+    else {
+      Serial.println("Problem updating channel. HTTP error code " + String(x));
+    }
     timerDust = millis();
   }
 
@@ -221,27 +240,27 @@ void loop() {
     pwmFan.rpmFan = density / 5;
     analogWrite(pwmFan.pwmFanOutputPin, pwmFan.rpmFan);
     if (density < 400) {
-      pwmFan.firstFanOFF();
-      pwmFan.secondFanOFF();
+      // pwmFan.firstFanOFF();
+      // pwmFan.secondFanOFF();
     } else if (density > 400) {
       Serial.println("Activating First Fan for 5 min");
-      timerDust = millis();
+      timerFan1 = millis();
       pwmFan.firstFanON();
-      if (millis() - timerDust > 300000) { //5min
+      if (millis() - timerFan1 > 300000) { //5min
         pwmFan.firstFanOFF();
         timerFan1 = millis();
       }
     } else if (density > 600) {
       Serial.println("Activating First and Second Fan for 10 min");
-      timerDust = millis();
+      timerFan1 = millis();
       pwmFan.firstFanON();
       pwmFan.secondFanON();
-      if (millis() - timerDust > 600000) { //10min
+      if (millis() - timerFan1 > 600000) { //10min
         pwmFan.firstFanOFF();
         pwmFan.secondFanOFF();
         timerFan1 = millis();
       }
     }
   }
-  delay(500);
+  delay(100);
 }
