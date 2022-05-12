@@ -8,37 +8,36 @@ unsigned int samplingTime = 280;
 unsigned int deltaTime = 40;
 unsigned int sleepTime = 9680;
 
-DustSensor::DustSensor(){
+DustSensor::DustSensor() {
   uint8_t vu;
 }
 
-void DustSensor::SETUP(){
+void DustSensor::SETUP() {
   pinMode(dustLedPower, OUTPUT);
   pinMode(dustSensorPin, INPUT);
-  digitalWrite(dustLedPower,HIGH); //off
+  digitalWrite(dustLedPower, HIGH); //off
   voMeasured = 0;
   calcVoltage = 0;
   dustDensity = 0;
 }
 
 
-int DustSensor::readDustSensor() { 
-     digitalWrite (dustLedPower,LOW);  //  power on the LED 
-     delayMicroseconds (samplingTime); 
-     voMeasured =  analogRead (dustSensorPin);  //  read the dust value 
-     delayMicroseconds (deltaTime); 
-     digitalWrite (dustLedPower,HIGH);  //  turn the LED off 
-     delayMicroseconds (sleepTime);
+int DustSensor::readDustSensor() {
+  digitalWrite (dustLedPower, LOW); //  power on the LED
+  delayMicroseconds (samplingTime);
+  voMeasured =  analogRead (dustSensorPin);  //  read the dust value
+  delayMicroseconds (deltaTime);
+  digitalWrite (dustLedPower, HIGH); //  turn the LED off
+  delayMicroseconds (sleepTime);
 
-     calcVoltage = voMeasured*(5.0/1024);
-     dustDensity = 0.17*calcVoltage-0.1;
+  calcVoltage = voMeasured * (5.0 / 1024);
+  dustDensity = 0.17 * calcVoltage - 0.1;
 
-     if ( dustDensity < 0)
-     {
-      dustDensity = 0.00; 
-     }
-
-     return  voMeasured; 
+  if ( dustDensity < 0)
+  {
+    dustDensity = 0.00;
   }
+  return  voMeasured;
+}
 
 DustSensor dustSensor = DustSensor();

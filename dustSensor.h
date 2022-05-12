@@ -5,6 +5,8 @@ class DustSensor{
   public:
     DustSensor();
     void SETUP();
+   // const int dustSensorPin = A0;
+  //  const int dustLedPower = D5;
     int readDustSensor();
     int voMeasured;
     float calcVoltage;
