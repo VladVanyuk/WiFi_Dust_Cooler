@@ -12,14 +12,15 @@ uint16_t RECV_PIN = D5; // ИК-детектор
 IRrecv irrecv(RECV_PIN);
 decode_results results;
 const int relayPin1 = D1;
-const int relayPin2 = D2;
-const int pwmFanOutputPin = D6;   //blue wire
+const int relayPin2 = D6;
+const int pwmFanOutputPin = D7;   //blue wire
 int firstFanIsActive = 0;//= LOW;
 int secondFanIsActive = 0;//= LOW;
 float rpmFanOne = 0;
 float rpmFanTwo = 0;
 
 unsigned long time_reconnect = 0;
+unsigned long time_ir = 0;
 
 String newHostname = "ESP8266DustCooler";
 //255 = 100%  191.25 = 75%  127.5 = 50%  63.75 = 25%  0 = 0%
@@ -28,6 +29,8 @@ String newHostname = "ESP8266DustCooler";
 
 void firstFanOFF() {
   digitalWrite(relayPin1, LOW);
+  rpmFanOne = 0;
+  analogWrite(pwmFanOutputPin, rpmFanOne);
   firstFanIsActive = 0;
   Serial.println("First cooler: OFF");
 }
@@ -42,6 +45,13 @@ void firstFanOFFPublish() {
 
 void firstFanON() {
   digitalWrite(relayPin1, HIGH);
+  //rpmFanOne = 25;
+  if (rpmFanOne != 0) {
+    analogWrite(pwmFanOutputPin, rpmFanOne);
+  } else {
+    rpmFanOne = 25;
+    analogWrite(pwmFanOutputPin, rpmFanOne);
+  }
   firstFanIsActive = 1;
   Serial.println("First cooler: ON");
 }
@@ -55,7 +65,7 @@ void firstFanONPublish() {
 
 void secondFanOFF() {
   rpmFanTwo = 0;
-  analogWrite(relayPin2, LOW);
+  analogWrite(relayPin2, rpmFanTwo);
   secondFanIsActive = 0;
   Serial.println("Second cooler: OFF");
 }
@@ -70,6 +80,8 @@ void secondFanOFFPublish() {
 
 void secondFanON() {
   digitalWrite(relayPin2, HIGH);
+  //rpmFanTwo = 255;
+  //analogWrite(relayPin2, rpmFanTwo);
   secondFanIsActive = 1;
   Serial.println("Second cooler: ON");
 }
@@ -86,13 +98,14 @@ void secondFanONPublish() {
 float setPwm(int fanPin, float speed_new) {
   if (fanPin == pwmFanOutputPin) {
     rpmFanOne = speed_new;
+    analogWrite(fanPin, rpmFanOne);
   } else if (fanPin == relayPin2) {
     rpmFanTwo = speed_new;
+    analogWrite(fanPin, rpmFanTwo);
   }
-  analogWrite(fanPin, speed_new);
-  Serial.println(speed_new);
+  float speed_to_publish = map(speed_new, 0, 255, 0, 100);
   char rpmString[8];
-  dtostrf(speed_new, 1, 2, rpmString);
+  dtostrf(speed_to_publish, 1, 2, rpmString);
   Serial.print("rpmString: ");
   Serial.println(rpmString);
   if (speed_new != 0) {
@@ -110,6 +123,8 @@ float setPwm(int fanPin, float speed_new) {
       secondFanOFFPublish();
     }
   }
+
+  Serial.println(speed_new);
   return speed_new;
 }
 
@@ -231,10 +246,17 @@ void callback(char* topic, byte * payload, unsigned int length) {
     // Switch on the LED if an 1 was received as first character
     if ((char)payload[0] == '0') {
       // firstFanOFF();
-      setPwm(pwmFanOutputPin, 0);
+      if (rpmFanOne != 0) {
+        setPwm(pwmFanOutputPin, 0);
+      } else {
+        firstFanOFF();
+      }
     } else if ((char)payload[0] == '1') {
-      //firstFanON();
-      setPwm(pwmFanOutputPin, 25);
+      if (rpmFanOne == 0) {
+        setPwm(pwmFanOutputPin, 25);
+      } else {
+        firstFanON();
+      }
     } else {
       Serial.println("Wrong command");
     }
@@ -246,9 +268,17 @@ void callback(char* topic, byte * payload, unsigned int length) {
     // Switch on the LED if an 1 was received as first character
     if ((char)payload[0] == '0') {
       // secondFanOFF();
-      setPwm(relayPin2, 0);
+      if (rpmFanTwo != 0) {
+        setPwm(relayPin2, 0);
+      } else {
+        secondFanOFF();
+      }
     } else if ((char)payload[0] == '1') {
-      setPwm(relayPin2, 255);
+      if (rpmFanTwo == 0) {
+        setPwm(relayPin2, 255);
+      } else {
+        secondFanON();
+      }
     } else {
       Serial.println("Wrong command");
     }
@@ -263,8 +293,8 @@ void callback(char* topic, byte * payload, unsigned int length) {
     if (messageSpdInt == 0) {
       firstFanOFFPublish();
     } else {
-      firstFanONPublish();
       rpmFanOne = map(messageSpdInt, 0, 100, 0, 255);
+      firstFanONPublish();
       analogWrite(pwmFanOutputPin, rpmFanOne);
     }
   } else if (strstr(topic, sub4)) {
@@ -278,8 +308,8 @@ void callback(char* topic, byte * payload, unsigned int length) {
     if (messageSpd2Int == 0) {
       secondFanOFFPublish();
     } else {
-      secondFanONPublish();
       rpmFanTwo = map(messageSpd2Int, 0, 100, 0, 255);
+      secondFanONPublish();
       analogWrite(relayPin2, rpmFanTwo);
     }
   } else {
@@ -289,26 +319,40 @@ void callback(char* topic, byte * payload, unsigned int length) {
 
 
 void manual_control() {
-  if ( irrecv.decode( &results )) { // если данные пришли
+  if ( irrecv.decode( &results ) && millis() % 500 == 0) { // если данные пришли
     Serial.println(results.value);
+    bool ir_control = false;
+    //  time_ir = millis();
     switch (results.value) {
-      case 50163855: //*
+      case 537004346: //ch1
         if (firstFanIsActive == 1) {
           firstFanOFFPublish();
         }
         else if (firstFanIsActive == 0) {
-          firstFanONPublish();
+          if (rpmFanOne == 0) {
+            setPwm(pwmFanOutputPin, 25);
+          } else {
+            firstFanONPublish();
+          }
         }
+        //   ir_control = true;
+        // time_ir = millis();
         break;
-      case 50147535://#
+      case 1841421431://ch2
         if (secondFanIsActive == 1) {
           secondFanOFFPublish();
         }
         else if (secondFanIsActive == 0) {
-          secondFanONPublish();
+          if (rpmFanTwo == 0) {
+            setPwm(relayPin2, 255);
+          } else {
+            secondFanONPublish();
+          }
         }
+        // ir_control = true;
+        //  time_ir = millis();
         break;
-      case 24321154:   //2121296640
+      case 2121296640:   //scan
         if (WiFi.status() != WL_CONNECTED) {
           triedAPmode = false;
           setup_wifi();
@@ -318,18 +362,10 @@ void manual_control() {
         } else {
           ESP.restart();
         }
-      case 2121296640:   //24321154
-        if (WiFi.status() != WL_CONNECTED) {
-          triedAPmode = false;
-          setup_wifi();
-        } else if (WiFi.status() == WL_CONNECTED && !client.connected()) {
-          triedReconnect = false;
-          reconnect();
-        } else {
-          ESP.restart();
-        }
+        //  ir_control = true;
+        // time_ir = millis();
         break;
     }
-    irrecv.resume(); // принимаем следующую команду
+    irrecv.resume();
   }
 }
